@@ -100,7 +100,7 @@ class DocumentChunk(BaseModel):
 
 class ExtractedContent(BaseModel):
     text: str
-    total_page: int
+    total_pages: int
     extraction_method: str
 
 

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 import httpx
 import asyncio
 from dotenv import load_dotenv
@@ -120,6 +120,83 @@ async def search_orchestrator(request: SearchRequest):
             status=f"error: {str(e)}",
             timestemp=datetime.now().isoformate()
         )
+
+
+# ---- Document (conetnt Extraction file)) ----------------
+from services.document.content_extractor import DocumentContentExtractor
+from pathlib import Path
+import os
+import uuid
+
+# create uploaded directory
+UPLOAD_DIR = Path("temp/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+def cleanup_file(file_path: str, delay: int = 300):
+    """Delete file after specific delay(default 5 minutes)"""
+    async def delayed_delete():
+        await asyncio.sleep(delay)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Auto-cleaned Up: {file_path}")
+
+    asyncio.create_task(delayed_delete())
+
+@app.post("/document-extraction")
+async def document_extraction(
+    file: UploadFile = File(...), 
+    background_tasks: BackgroundTasks = BackgroundTasks()  
+):
+    """Extract text content from uploaded PDF file"""
+    
+    logger.info(f"Received file: {file.filename}")
+    
+    # Validate file type
+    if not file.filename.endswith('.pdf'):
+        return {"error": "Only PDF files are supported"}
+    
+    # Generate unique filename (add timestamp to avoid conflicts)
+    # from datetime import datetime
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_filename = f"{file.filename}"
+    file_path = UPLOAD_DIR / unique_filename
+    
+    try:
+        # Save uploaded file
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        logger.info(f"File saved to: {file_path}")
+        
+        # Extract content
+        extractor = DocumentContentExtractor()
+        result = extractor.extract_from_pdf(file_path=str(file_path))
+        
+        logger.info(f"Extraction complete: {result.total_pages} pages")
+        
+        # Schedule cleanup after processing
+        background_tasks.add_task(
+            lambda: os.remove(file_path) if os.path.exists(file_path) else None
+        )
+        
+        return {
+            "success": True,
+            "filename": file.filename,
+            "text": result,            
+            "total_pages": result.total_pages,
+            "extraction_method": result.extraction_method,
+            "total_characters": len(result.text)
+        }
+    
+    except Exception as e:
+        logger.error(f"Document extraction failed: {e}")
+        
+        # Immediate cleanup on error
+        if file_path.exists():
+            os.remove(file_path)
+        
+        return {"error": str(e), "filename": file.filename}
 
 
 if __name__ == "__main__":

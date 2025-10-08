@@ -5,3 +5,5 @@ uvicorn
 httpx
 langchain-community
 groq
+tiktoken
+PyMuPDF
