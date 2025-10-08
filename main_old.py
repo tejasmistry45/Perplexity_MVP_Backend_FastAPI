@@ -202,24 +202,23 @@ async def document_extraction(
 from services.document.chunking_service import DocumentChunkingService
 import uuid
 
-chunking_service = DocumentChunkingService()
+chunking_services = DocumentChunkingService()
 
 @app.post("/chunking-text-service")
 async def chunking_text_service(text: str, document_id: str = None):
     """
     Chunk text into smaller semantic pieces for RAG Processing
     """
-    logger.info(f"Recived Text Chunking Request: {len(text)} characters")
 
     try:
-        # generated document ID if not provided
         if not document_id:
             document_id = f"doc_{uuid.uuid4().hex[:8]}"
 
-        # Chunk the Text
-        chunks = chunking_service.chunk_document(text=text, document_id=document_id)
+        # chunk the text
+        chunks = chunking_services.chunk_document(text=text, document_id=document_id)
 
         logger.info(f"Created {len(chunks)} chunks for document {document_id}")
+        logger.info(f"Content: {chunks}")
 
         return {
             "success": True,
@@ -245,56 +244,57 @@ async def chunking_text_service(text: str, document_id: str = None):
     except Exception as e:
         logger.error(f"❌ Chunking failed: {e}")
         return {"error": str(e)}
+            
+# --- Combined Endpoint: Extract + Chunk ---
+from pathlib import Path
+from datetime import datetime
+import os
+from services.document.content_extractor import DocumentContentExtractor
 
-# -------
 @app.post("/extract-and-chunk")
 async def extract_and_chunk(file: UploadFile = File(...)):
     """
-    Upload PDF, extract text, and chunk it in one go
+    Upload PDF, extract Text, and chunk it in one go
     """
-    logger.info(f"📄 Extract & Chunk request for: {file.filename}")
-    
+    logger.info(f"Extract & Chunk request for: {file.filename}")
+
     if not file.filename.endswith('.pdf'):
-        return {"error": "Only PDF files are supported"}
-    
-    from pathlib import Path
-    from datetime import datetime
-    import os
-    
-    # Save file temporarily
+        return {"error": "Only PDF Files are Supported"}
+
+    # Step 1: Upload File
+    # save file temporarily
     UPLOAD_DIR = Path("temp/uploads")
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    unique_filename = f"{timestamp}_{file.filename}"
+
+    unique_filename = f"{file.filename}"
     file_path = UPLOAD_DIR / unique_filename
-    
+
     try:
-        # Save file
+        # save file
         content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
-        
-        logger.info(f"💾 File saved: {file_path}")
-        
-        # Extract text
-        from services.document.content_extractor import DocumentContentExtractor
+
+        logger.info(f"File Saved: {file_path}")
+
+        # Extracted Text
         extractor = DocumentContentExtractor()
         extraction_result = extractor.extract_from_pdf(file_path=str(file_path))
-        
-        logger.info(f"✅ Extracted {extraction_result.total_pages} pages")
-        
-        # Generate document ID
+
+        logger.info(f"Extracted {extraction_result.total_pages} pages")
+        # logger.info(f"Extracted_result Text: {extraction_result}")
+
+        # generate document ID
         document_id = f"doc_{uuid.uuid4().hex[:8]}"
-        
-        # Chunk the extracted text
-        chunks = chunking_service.chunk_document(
-            text=extraction_result.text,
-            document_id=document_id
+
+        # chunk the extracted text
+        chunks = chunking_services.chunk_document(
+            text = extraction_result.text,
+            document_id = document_id
         )
-        
-        logger.info(f"✅ Created {len(chunks)} chunks")
-        
+
+        logger.info(f"Created {len(chunks)} chunks")
+
         return {
             "success": True,
             "filename": file.filename,
@@ -317,7 +317,8 @@ async def extract_and_chunk(file: UploadFile = File(...)):
                     "token_count": chunk.token_count,
                     "content_preview": chunk.content
                 }
-                for chunk in chunks[:5]  # Return first 5 chunks as preview
+                # for chunk in chunks[:5]  # Return first 5 chunks as preview
+                for chunk in chunks
             ]
         }
     
@@ -329,6 +330,7 @@ async def extract_and_chunk(file: UploadFile = File(...)):
         # Cleanup
         if file_path.exists():
             os.remove(file_path)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
