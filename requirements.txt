@@ -7,3 +7,6 @@ langchain-community
 groq
 tiktoken
 PyMuPDF
+chromadb
+sentence-transformers
+torch

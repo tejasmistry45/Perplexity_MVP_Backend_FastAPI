@@ -323,13 +323,16 @@ async def extract_and_chunk(file: UploadFile = File(...)):
         }
     
     except Exception as e:
-        logger.error(f"❌ Extract & Chunk failed: {e}")
+        logger.error(f"Extract & Chunk failed: {e}")
         return {"error": str(e)}
     
     finally:
         # Cleanup
         if file_path.exists():
             os.remove(file_path)
+
+# -------------- store chunks in database -------------------
+
 
 
 if __name__ == "__main__":
