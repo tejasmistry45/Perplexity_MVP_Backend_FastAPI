@@ -198,6 +198,56 @@ async def document_extraction(
         
         return {"error": str(e), "filename": file.filename}
 
+# --- Chunking Text Data service --------
+from services.document.chunking_service import DocumentChunkingService
+import uuid
+
+chunking_service = DocumentChunkingService()
+
+@app.post("/chunking-text-service")
+async def chunking_text_service(text: str, document_id: str = None):
+    """
+    Chunk text into smaller semantic pieces for RAG Processing
+    """
+    logger.info(f"Recived Text Chunking Request: {len(text)} characters")
+
+    try:
+        # generated document ID if not provided
+        if not document_id:
+            document_id = f"doc_{uuid.uuid4().hex[:8]}"
+
+        # Chunk the Text
+        chunks = chunking_service.chunk_document(text=text, document_id=document_id)
+
+        logger.info(f"Created {len(chunks)} chunks for document {document_id}")
+
+        return {
+            "success": True,
+            "document_id": document_id,
+            "total_chunks": len(chunks),
+            "chunks": [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "page_number": chunk.page_number,
+                    "chunk_index": chunk.chunk_index,
+                    "token_count": chunk.token_count,
+                    "content_preview": chunk.content
+                }
+                for chunk in chunks
+            ],
+            "statistics": {
+                "total_tokens": sum(chunk.token_count for chunk in chunks),
+                "avg_tokens_per_chunk": sum(chunk.token_count for chunk in chunks) // len(chunks) if chunks else 0,
+                "pages_processed": max(chunk.page_number for chunk in chunks) if chunks else 0
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ Chunking failed: {e}")
+        return {"error": str(e)}
+    
+
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
