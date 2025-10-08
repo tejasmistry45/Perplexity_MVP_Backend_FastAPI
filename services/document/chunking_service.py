@@ -33,6 +33,7 @@ class DocumentChunkingService:
                 start_index = len(all_chunks)
             )
 
+            all_chunks.extend(page_chunk)
         logger.info(f"Document {document_id} split into {len(all_chunks)} chunk")
         return all_chunks
     

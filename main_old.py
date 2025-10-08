@@ -245,9 +245,90 @@ async def chunking_text_service(text: str, document_id: str = None):
     except Exception as e:
         logger.error(f"❌ Chunking failed: {e}")
         return {"error": str(e)}
+
+# -------
+@app.post("/extract-and-chunk")
+async def extract_and_chunk(file: UploadFile = File(...)):
+    """
+    Upload PDF, extract text, and chunk it in one go
+    """
+    logger.info(f"📄 Extract & Chunk request for: {file.filename}")
     
-
-
+    if not file.filename.endswith('.pdf'):
+        return {"error": "Only PDF files are supported"}
+    
+    from pathlib import Path
+    from datetime import datetime
+    import os
+    
+    # Save file temporarily
+    UPLOAD_DIR = Path("temp/uploads")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_filename = f"{timestamp}_{file.filename}"
+    file_path = UPLOAD_DIR / unique_filename
+    
+    try:
+        # Save file
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        logger.info(f"💾 File saved: {file_path}")
+        
+        # Extract text
+        from services.document.content_extractor import DocumentContentExtractor
+        extractor = DocumentContentExtractor()
+        extraction_result = extractor.extract_from_pdf(file_path=str(file_path))
+        
+        logger.info(f"✅ Extracted {extraction_result.total_pages} pages")
+        
+        # Generate document ID
+        document_id = f"doc_{uuid.uuid4().hex[:8]}"
+        
+        # Chunk the extracted text
+        chunks = chunking_service.chunk_document(
+            text=extraction_result.text,
+            document_id=document_id
+        )
+        
+        logger.info(f"✅ Created {len(chunks)} chunks")
+        
+        return {
+            "success": True,
+            "filename": file.filename,
+            "document_id": document_id,
+            "extraction": {
+                "total_pages": extraction_result.total_pages,
+                "extraction_method": extraction_result.extraction_method,
+                "total_characters": len(extraction_result.text)
+            },
+            "chunking": {
+                "total_chunks": len(chunks),
+                "total_tokens": sum(chunk.token_count for chunk in chunks),
+                "avg_tokens_per_chunk": sum(chunk.token_count for chunk in chunks) // len(chunks)
+            },
+            "chunks": [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "page_number": chunk.page_number,
+                    "chunk_index": chunk.chunk_index,
+                    "token_count": chunk.token_count,
+                    "content_preview": chunk.content
+                }
+                for chunk in chunks[:5]  # Return first 5 chunks as preview
+            ]
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ Extract & Chunk failed: {e}")
+        return {"error": str(e)}
+    
+    finally:
+        # Cleanup
+        if file_path.exists():
+            os.remove(file_path)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
